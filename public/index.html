@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Agario Clone</title>
+<style>
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #111; font-family: sans-serif; }
+  canvas { display: block; }
+  #menu {
+    position: fixed; inset: 0; display: flex; flex-direction: column;
+    align-items: center; justify-content: center; gap: 12px;
+    background: rgba(0,0,0,.7); color: #fff;
+  }
+  #menu input, #menu button { padding: 10px 16px; font-size: 18px; border-radius: 8px; border: none; }
+  #menu button { background: #4caf50; color: #fff; cursor: pointer; }
+  #score { position: fixed; top: 10px; left: 10px; color: #fff; font-size: 18px; }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="score"></div>
+<div id="menu">
+  <h1>Agario Clone</h1>
+  <input id="name" placeholder="Tu nombre" maxlength="15">
+  <button id="play">Jugar</button>
+</div>
+
+<script src="/socket.io/socket.io.js"></script>
+<script>
+const socket = io();
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+const menu = document.getElementById('menu');
+const scoreEl = document.getElementById('score');
+
+let myId = null, mapSize = 4000, state = { players: [], food: [] };
+let mouse = { x: 0, y: 0 };
+
+const radius = (m) => Math.sqrt(m) * 4;
+function resize() { canvas.width = innerWidth; canvas.height = innerHeight; }
+addEventListener('resize', resize); resize();
+
+document.getElementById('play').onclick = () => {
+  socket.emit('join', document.getElementById('name').value);
+  menu.style.display = 'none';
+};
+
+socket.on('joined', (d) => { myId = d.id; mapSize = d.mapSize; });
+socket.on('state', (s) => { state = s; });
+socket.on('dead', () => { myId = null; menu.style.display = 'flex'; });
+
+addEventListener('mousemove', (e) => {
+  mouse.x = e.clientX - canvas.width / 2;
+  mouse.y = e.clientY - canvas.height / 2;
+  socket.emit('move', mouse);
+});
+
+function drawGrid(camX, camY) {
+  ctx.strokeStyle = 'rgba(255,255,255,.08)';
+  ctx.lineWidth = 1;
+  const step = 50;
+  const startX = -((camX - canvas.width / 2) % step);
+  const startY = -((camY - canvas.height / 2) % step);
+  for (let x = startX; x < canvas.width; x += step) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, canvas.height); ctx.stroke(); }
+  for (let y = startY; y < canvas.height; y += step) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(canvas.width, y); ctx.stroke(); }
+}
+
+function draw() {
+  ctx.fillStyle = '#1a1a1a';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  const me = state.players.find((p) => p.id === myId);
+  const camX = me ? me.x : mapSize / 2;
+  const camY = me ? me.y : mapSize / 2;
+  const toScreen = (x, y) => [x - camX + canvas.width / 2, y - camY + canvas.height / 2];
+
+  drawGrid(camX, camY);
+
+  // Borde del mapa
+  const [bx, by] = toScreen(0, 0);
+  ctx.strokeStyle = '#f44'; ctx.lineWidth = 4;
+  ctx.strokeRect(bx, by, mapSize, mapSize);
+
+  // Comida
+  for (const f of state.food) {
+    const [x, y] = toScreen(f.x, f.y);
+    if (x < -10 || y < -10 || x > canvas.width + 10 || y > canvas.height + 10) continue;
+    ctx.fillStyle = f.color;
+    ctx.beginPath(); ctx.arc(x, y, 5, 0, Math.PI * 2); ctx.fill();
+  }
+
+  // Jugadores (los chicos primero para que los grandes queden encima)
+  [...state.players].sort((a, b) => a.mass - b.mass).forEach((p) => {
+    const [x, y] = toScreen(p.x, p.y);
+    const r = radius(p.mass);
+    ctx.fillStyle = p.color;
+    ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill();
+    ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(0,0,0,.35)'; ctx.stroke();
+    ctx.fillStyle = '#fff'; ctx.textAlign = 'center'; ctx.font = `bold ${Math.max(12, r / 2.5)}px sans-serif`;
+    ctx.fillText(p.name, x, y + 5);
+  });
+
+  scoreEl.textContent = me ? `Masa: ${Math.floor(me.mass)}` : '';
+  requestAnimationFrame(draw);
+}
+draw();
+</script>
+</body>
+</html>
